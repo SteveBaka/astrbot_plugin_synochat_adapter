@@ -6,10 +6,6 @@ from astrbot.api.event import AstrMessageEvent, MessageChain
 from astrbot.api.message_components import Image, Plain
 
 
-def _message_chain_has_image(message: MessageChain) -> bool:
-    return any(isinstance(comp, Image) for comp in getattr(message, "chain", []))
-
-
 class SynologyChatMessageEvent(AstrMessageEvent):
     def __init__(
         self,
@@ -26,12 +22,8 @@ class SynologyChatMessageEvent(AstrMessageEvent):
 
     async def send(self, message: MessageChain) -> None:
         if self.pending_reply is not None and not self.pending_reply.done():
-            if _message_chain_has_image(message):
-                await self.adapter.send_proactive_by_session(self.session, message)
-                self.pending_reply.set_result({"text": ""})
-            else:
-                payload = await self.adapter.build_webhook_reply_payload(self.session, message)
-                self.pending_reply.set_result(payload)
+            payload = await self.adapter.build_webhook_reply_payload(self.session, message)
+            self.pending_reply.set_result(payload)
         else:
             await self.adapter.send_by_session(self.session, message)
         await super().send(message)

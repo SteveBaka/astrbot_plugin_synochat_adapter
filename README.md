@@ -192,14 +192,32 @@ https://bot.example.com/api/platform/webhook/xxxxxxxx
 - 接收 Synology Chat 传出 Webhook 消息
 - 接收斜线指令投递的数据（按普通文本消息处理）
 - 文本消息回发
-- 远程图片 URL 回发（映射到 `file_url`）
+- 图片消息自动降级为“文本 + 图片链接”回发
 - AstrBot 主动消息 `send_message()`
 
 ### 暂未完整支持
 
 - Synology Chat 交互式按钮回调的完整闭环
 - 本地图片 / 本地文件直接上传（Synology Chat 外部接口更适合 `file_url` 远程地址）
+- 在机器人独立会话中稳定主动回传富媒体（如直接图片卡片 / `file_url`）
 - 非统一 Webhook 模式下的独立内置 HTTP Server
+
+## Synology Chat 机器人能力边界说明
+
+根据 Synology Chat 官方说明，**机器人只能在“机器人”分页下建立独立对话，无法加入群组对话或频道**。
+
+这意味着本适配器不能简单套用一般 IM 平台的“群 / 私聊 + 主动定向发送”模型，应按更保守的方式理解 Synology Chat 机器人能力：
+
+- 更适合：接收机器人会话中的 webhook 请求，并同步返回文本结果
+- 不应默认假设：可以像普通 IM 账号一样，按 `user_id` / `channel_id` 稳定主动补发消息
+- 特别是图片场景中，即使 AstrBot 已拿到图片 URL，Synology Chat 也可能因为缺少可用 target 或机器人会话限制而拒绝投递
+
+因此，当前实现对图片结果采取了更稳妥的兼容策略：
+
+- **不再优先主动发送 `file_url` 图片**
+- **统一降级为文本消息，并附上图片链接**
+
+这样做的目的不是追求最佳展示效果，而是优先保证在 Synology Chat 机器人独立会话中“至少能稳定把结果送达用户”。
 
 ## 兼容性说明
 
@@ -213,7 +231,8 @@ https://bot.example.com/api/platform/webhook/xxxxxxxx
 
 - 接收侧兼容 `JSON` / `form` / `payload=JSON字符串`
 - 发送侧使用 `SYNO.Chat.External` + `method=incoming` 的常见用法
-- 目的会话优先按 `channel_id` / `user_id` 推断
+- 文本场景尽量复用 webhook 同步回包
+- 图片场景默认降级为“文本 + 图片链接”，避免因主动富媒体投递失败而无响应
 
 ## 部署建议
 

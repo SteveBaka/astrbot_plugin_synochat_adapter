@@ -115,6 +115,23 @@ async def _extract_image_url(component: Any) -> str:
     return ""
 
 
+def _build_image_link_text(text: str, image_urls: list[str]) -> str:
+    normalized_text = _safe_str(text).strip()
+    if not image_urls:
+        return normalized_text
+
+    lines: list[str] = []
+    if normalized_text and normalized_text != _SYNOLOGY_IMAGE_PLACEHOLDER_TEXT:
+        lines.append(normalized_text)
+
+    if len(image_urls) == 1:
+        lines.append(f"图片链接：{image_urls[0]}")
+    else:
+        lines.append("图片链接：")
+        lines.extend(f"{idx}. {url}" for idx, url in enumerate(image_urls, start=1))
+    return "\n".join(lines).strip()
+
+
 def _log_webhook_info(webhook_uuid: str) -> None:
     logger.info(
         "\n====================\n"
@@ -488,25 +505,15 @@ class SynologyChatAdapter(Platform):
         image_urls = await self._collect_image_urls(message_chain)
         text = await self._chain_to_text(message_chain)
         payload: dict[str, Any] = {}
-        if text:
-            payload["text"] = text
-
         if image_urls:
-            payload["file_url"] = image_urls[0]
-            if not payload.get("text"):
-                payload["text"] = _SYNOLOGY_IMAGE_PLACEHOLDER_TEXT
-            if len(image_urls) > 1:
-                extra_lines = [f"附加图片 {idx}: {url}" for idx, url in enumerate(image_urls[1:], start=2)]
-                if payload.get("text") and payload.get("text") != _SYNOLOGY_IMAGE_PLACEHOLDER_TEXT:
-                    payload["text"] = f"{payload['text']}\n" + "\n".join(extra_lines)
-                else:
-                    payload["text"] = "\n".join(extra_lines)
+            payload["text"] = _build_image_link_text(text, image_urls)
             logger.debug(
-                "[SynologyChatAdapter] build image payload text=%s file_url=%s extra_images=%s",
+                "[SynologyChatAdapter] downgrade image message to text links text=%s image_urls=%s",
                 payload.get("text"),
-                payload.get("file_url"),
-                image_urls[1:],
+                image_urls,
             )
+        elif text:
+            payload["text"] = text
 
         target_id = _safe_str(getattr(session, "session_id", ""))
         message_type = getattr(session, "message_type", None)
@@ -525,8 +532,6 @@ class SynologyChatAdapter(Platform):
         payload = await self.build_payload_from_chain(session, message_chain)
         payload.pop("user_ids", None)
         payload.pop("channel_id", None)
-        if payload.get("file_url") and not payload.get("text"):
-            payload["text"] = _SYNOLOGY_IMAGE_PLACEHOLDER_TEXT
         logger.debug("[SynologyChatAdapter] webhook reply payload=%s", payload)
         return payload or {"text": ""}
 
