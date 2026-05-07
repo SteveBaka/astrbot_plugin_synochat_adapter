@@ -1,4 +1,5 @@
 import asyncio
+import hmac
 import json
 import ssl
 import time
@@ -8,7 +9,7 @@ import urllib.request
 from typing import Any, Optional
 
 import quart
-from astrbot import logger
+from astrbot.api import logger
 from astrbot.api.event import MessageChain
 from astrbot.api.message_components import Image, Plain
 from astrbot.api.platform import (
@@ -22,7 +23,6 @@ from astrbot.core.platform.astr_message_event import MessageSesion
 from astrbot.core.platform.register import register_platform_adapter
 
 from .synology_chat_event import SynologyChatMessageEvent
-
 
 _SYNOLOGY_IMAGE_PLACEHOLDER_TEXT = "[图片]"
 
@@ -39,9 +39,8 @@ def _normalize_synology_token(token: Any) -> str:
     value = _safe_str(token).strip()
     if not value:
         return ""
-    if (
-        len(value) >= 2
-        and ((value[0] == '"' and value[-1] == '"') or (value[0] == "'" and value[-1] == "'"))
+    if len(value) >= 2 and (
+        (value[0] == '"' and value[-1] == '"') or (value[0] == "'" and value[-1] == "'")
     ):
         value = value[1:-1].strip()
     return value
@@ -106,6 +105,11 @@ async def _extract_image_url(component: Any) -> str:
                     registered_value,
                 )
                 return registered_value
+            if registered_value:
+                logger.debug(
+                    "[SynologyChatAdapter] registered value is not a URL: %s",
+                    registered_value,
+                )
         except Exception as exc:
             logger.warning(
                 "[SynologyChatAdapter] failed to register image to file service: %s",
@@ -172,8 +176,6 @@ async def _maybe_await(value: Any) -> Any:
     "synochat_adapter",
     "Synology Chat 平台适配器",
     default_config_tmpl={
-        "id": "synochat_adapter",
-        "type": "synochat_adapter",
         "enable": False,
         "base_url": "https://chat.example.com",
         "incoming_webhook_url": "",
@@ -191,11 +193,6 @@ async def _maybe_await(value: Any) -> Any:
     logo_path="assets/synology-chat.svg",
     support_streaming_message=True,
     config_metadata={
-        "id": {
-            "description": "平台 ID",
-            "type": "string",
-            "hint": "平台实例的唯一标识，建议保持默认或使用易识别名称。",
-        },
         "enable": {
             "description": "启用",
             "type": "bool",
@@ -261,12 +258,6 @@ async def _maybe_await(value: Any) -> Any:
             "type": "string",
             "hint": "统一 Webhook 模式下的平台 webhook 标识。",
         },
-        "logo_token": {
-            "description": "平台图标",
-            "type": "string",
-            "hint": "由 AstrBot 自动注入，用于在 WebUI 中显示平台图标。",
-            "invisible": True,
-        },
     },
 )
 class SynologyChatAdapter(Platform):
@@ -279,7 +270,9 @@ class SynologyChatAdapter(Platform):
         super().__init__(platform_config, event_queue)
         self.settings = platform_settings
         configured_base_value = _safe_str(platform_config.get("base_url")).strip()
-        self.incoming_webhook_url = _safe_str(platform_config.get("incoming_webhook_url")).strip()
+        self.incoming_webhook_url = _safe_str(
+            platform_config.get("incoming_webhook_url")
+        ).strip()
 
         parsed_chatbot = _parse_synology_chatbot_url(configured_base_value)
         if not parsed_chatbot:
@@ -295,14 +288,20 @@ class SynologyChatAdapter(Platform):
         parsed_base_url = _safe_str(parsed_chatbot.get("base_url")).rstrip("/")
         self.base_url = configured_base_url or parsed_base_url
 
-        configured_bot_token = _normalize_synology_token(platform_config.get("bot_token"))
+        configured_bot_token = _normalize_synology_token(
+            platform_config.get("bot_token")
+        )
         parsed_token = _normalize_synology_token(parsed_chatbot.get("token"))
         configured_outgoing_token = _normalize_synology_token(
             platform_config.get("outgoing_token")
         )
-        self.bot_token = configured_bot_token or configured_outgoing_token or parsed_token
+        self.bot_token = (
+            configured_bot_token or configured_outgoing_token or parsed_token
+        )
 
-        self.outgoing_token = configured_outgoing_token or parsed_token or self.bot_token
+        self.outgoing_token = (
+            configured_outgoing_token or parsed_token or self.bot_token
+        )
         self.request_timeout = int(platform_config.get("request_timeout", 15) or 15)
         self.webhook_reply_timeout = int(
             platform_config.get("webhook_reply_timeout", 0) or 0
@@ -319,12 +318,19 @@ class SynologyChatAdapter(Platform):
         self._pending_webhook_replies: dict[str, list[asyncio.Future]] = {}
         self._expired_webhook_sessions: dict[str, float] = {}
         self._standalone_webhook_app: quart.Quart | None = None
+        self._expired_session_last_cleanup: float = 0.0
 
-        if (configured_base_value or self.incoming_webhook_url) and parsed_token and not configured_bot_token:
-            logger.info(
-                "[SynologyChatAdapter] 已从配置中自动提取 bot_token。"
-            )
-        if (configured_base_value or self.incoming_webhook_url) and parsed_base_url and not configured_base_url:
+        if (
+            (configured_base_value or self.incoming_webhook_url)
+            and parsed_token
+            and not configured_bot_token
+        ):
+            logger.info("[SynologyChatAdapter] 已从配置中自动提取 bot_token。")
+        if (
+            (configured_base_value or self.incoming_webhook_url)
+            and parsed_base_url
+            and not configured_base_url
+        ):
             logger.info(
                 "[SynologyChatAdapter] 已从配置中自动提取 base_url=%s",
                 parsed_base_url,
@@ -389,6 +395,17 @@ class SynologyChatAdapter(Platform):
     async def _standalone_shutdown_trigger(self) -> None:
         await self._shutdown_event.wait()
 
+    def _cleanup_expired_sessions_if_needed(self) -> None:
+        now = time.time()
+        if now - self._expired_session_last_cleanup < 60:
+            return
+        self._expired_session_last_cleanup = now
+        expired = [
+            sid for sid, ts in self._expired_webhook_sessions.items() if now - ts > 120
+        ]
+        for sid in expired:
+            self._expired_webhook_sessions.pop(sid, None)
+
     def _create_standalone_webhook_app(self) -> quart.Quart:
         if self._standalone_webhook_app is not None:
             return self._standalone_webhook_app
@@ -397,12 +414,18 @@ class SynologyChatAdapter(Platform):
 
         async def _handle_root() -> Any:
             if quart.request.method == "GET":
-                return {"success": True, "message": "Synology Chat adapter webhook is running"}
+                return {
+                    "success": True,
+                    "message": "Synology Chat adapter webhook is running",
+                }
             return await self.webhook_callback(quart.request)
 
         async def _handle_webhook() -> Any:
             if quart.request.method == "GET":
-                return {"success": True, "message": "Synology Chat adapter webhook is running"}
+                return {
+                    "success": True,
+                    "message": "Synology Chat adapter webhook is running",
+                }
             return await self.webhook_callback(quart.request)
 
         app.add_url_rule("/", view_func=_handle_root, methods=["GET", "POST"])
@@ -517,10 +540,16 @@ class SynologyChatAdapter(Platform):
 
         target_id = _safe_str(getattr(session, "session_id", ""))
         message_type = getattr(session, "message_type", None)
-        if message_type == MessageType.FRIEND_MESSAGE and (target_id or fallback_sender_id):
-            payload["user_ids"] = [_normalize_target_value(target_id or fallback_sender_id)]
+        if message_type == MessageType.FRIEND_MESSAGE and (
+            target_id or fallback_sender_id
+        ):
+            payload["user_ids"] = [
+                _normalize_target_value(target_id or fallback_sender_id)
+            ]
         elif target_id or fallback_group_id:
-            payload["channel_id"] = _normalize_target_value(target_id or fallback_group_id)
+            payload["channel_id"] = _normalize_target_value(
+                target_id or fallback_group_id
+            )
 
         return payload
 
@@ -577,6 +606,8 @@ class SynologyChatAdapter(Platform):
             getattr(session, "message_type", None),
         )
         payload = await self.build_payload_from_chain(session, message_chain)
+
+        self._cleanup_expired_sessions_if_needed()
 
         expired_at = self._expired_webhook_sessions.get(session_id)
         if expired_at is not None:
@@ -669,8 +700,8 @@ class SynologyChatAdapter(Platform):
             json_data = await _maybe_await(request.get_json(silent=True))
             if isinstance(json_data, dict):
                 data.update(json_data)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("[SynologyChatAdapter] failed to parse JSON body: %s", exc)
 
         try:
             form_data = await _maybe_await(request.form)
@@ -679,8 +710,8 @@ class SynologyChatAdapter(Platform):
                     data.update(form_data.to_dict(flat=True))
                 else:
                     data.update(dict(form_data))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("[SynologyChatAdapter] failed to parse form data: %s", exc)
 
         if isinstance(data.get("payload"), str):
             try:
@@ -710,8 +741,10 @@ class SynologyChatAdapter(Platform):
                                     data.update(payload_data)
                             except json.JSONDecodeError:
                                 pass
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug(
+                    "[SynologyChatAdapter] failed to parse raw request body: %s", exc
+                )
 
         return data
 
@@ -719,7 +752,9 @@ class SynologyChatAdapter(Platform):
         if not self.verify_token:
             return True
         incoming_token = _safe_str(data.get("token"))
-        return bool(incoming_token and incoming_token == self.outgoing_token)
+        if not incoming_token or not self.outgoing_token:
+            return False
+        return hmac.compare_digest(incoming_token, self.outgoing_token)
 
     async def webhook_callback(self, request: Any) -> Any:
         data = await self._parse_request_data(request)
@@ -739,7 +774,9 @@ class SynologyChatAdapter(Platform):
 
         message = self._build_message(data)
         reply_future: asyncio.Future = asyncio.get_running_loop().create_future()
-        self._pending_webhook_replies.setdefault(message.session_id, []).append(reply_future)
+        self._pending_webhook_replies.setdefault(message.session_id, []).append(
+            reply_future
+        )
         await self.handle_msg(message, pending_reply=reply_future)
         try:
             if self.webhook_reply_timeout <= 0:

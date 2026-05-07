@@ -125,6 +125,15 @@ https://bot.example.com/api/platform/webhook/xxxxxxxx
 >
 > 因此，在这类场景下，将“对外可达的回调接口地址”配置为**公网可访问地址**，通常可以改善图片、文件等链接无法访问的问题。
 
+## 安全说明
+
+本插件调用的 Synology Chat API 要求将 Bot Token 作为 URL 查询参数传输（这是 Synology Chat API 的设计要求）。这意味着 token 可能出现在 HTTP 访问日志、代理日志等位置。
+
+**建议：**
+
+- 确保 AstrBot 与 Synology Chat 之间通过 **HTTPS** 通信
+- 在反向代理或网志层面做好日志脱敏，避免 token 泄露
+
 ## 参考文档
 
 - [AstrBot 平台适配器开发文档](https://docs.astrbot.app/dev/plugin-platform-adapter.html)

@@ -22,7 +22,9 @@ class SynologyChatMessageEvent(AstrMessageEvent):
 
     async def send(self, message: MessageChain) -> None:
         if self.pending_reply is not None and not self.pending_reply.done():
-            payload = await self.adapter.build_webhook_reply_payload(self.session, message)
+            payload = await self.adapter.build_webhook_reply_payload(
+                self.session, message
+            )
             self.pending_reply.set_result(payload)
         else:
             await self.adapter.send_by_session(self.session, message)
@@ -34,6 +36,10 @@ class SynologyChatMessageEvent(AstrMessageEvent):
         use_fallback: bool = False,
     ) -> None:
         if not use_fallback:
+            # Non-fallback mode: merge all chunks into a single message and send
+            # directly. The generator is already exhausted here;
+            # super().send_streaming() is called to maintain the framework's
+            # lifecycle hooks, but will be a no-op on the empty generator.
             merged = None
             async for chain in generator:
                 if merged is None:
