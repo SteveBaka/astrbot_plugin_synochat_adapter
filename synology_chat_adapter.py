@@ -176,7 +176,6 @@ async def _maybe_await(value: Any) -> Any:
     "synochat_adapter",
     "Synology Chat 平台适配器",
     default_config_tmpl={
-        "enable": False,
         "base_url": "https://chat.example.com",
         "incoming_webhook_url": "",
         "bot_token": "",
@@ -192,11 +191,6 @@ async def _maybe_await(value: Any) -> Any:
     adapter_display_name="Synology Chat",
     support_streaming_message=True,
     config_metadata={
-        "enable": {
-            "description": "启用",
-            "type": "bool",
-            "hint": "是否启用该适配器。未启用时不会接收 Synology Chat 消息。",
-        },
         "base_url": {
             "description": "Synology Chat 服务地址",
             "type": "string",
