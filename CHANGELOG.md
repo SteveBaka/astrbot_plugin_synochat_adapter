@@ -9,7 +9,6 @@
   - 支持接收 Synology Chat **传出 Webhook** 消息
   - 支持将 AstrBot 处理结果回发到 Synology Chat
   - 支持 AstrBot 主动调用 `send_message()` 发送消息
-- 新增 Synology Chat 图标资源：`assets/synology-chat.svg`
 - 新增 `README.md` 使用说明文档，包含安装、配置、使用流程与参考资料
 
 ### Changed

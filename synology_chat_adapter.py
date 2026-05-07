@@ -190,7 +190,6 @@ async def _maybe_await(value: Any) -> Any:
         "webhook_uuid": "",
     },
     adapter_display_name="Synology Chat",
-    logo_path="assets/synology-chat.svg",
     support_streaming_message=True,
     config_metadata={
         "enable": {
