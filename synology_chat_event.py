@@ -1,20 +1,29 @@
+from __future__ import annotations
+
 import asyncio
 from collections.abc import AsyncGenerator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from astrbot.api.event import AstrMessageEvent, MessageChain
 from astrbot.api.message_components import Image, Plain
 
+if TYPE_CHECKING:
+    from .synology_chat_adapter import SynologyChatAdapter
+
+_STREAMING_FLUSH_CHARS = frozenset("。？！!?.;；\n")
+_STREAMING_FLUSH_DELAY = 0.3
+
 
 class SynologyChatMessageEvent(AstrMessageEvent):
+
     def __init__(
         self,
         message_str: str,
         message_obj: Any,
         platform_meta: Any,
         session_id: str,
-        adapter: Any,
-        pending_reply: Any = None,
+        adapter: SynologyChatAdapter,
+        pending_reply: asyncio.Future | None = None,
     ) -> None:
         super().__init__(message_str, message_obj, platform_meta, session_id)
         self.adapter = adapter
@@ -36,10 +45,6 @@ class SynologyChatMessageEvent(AstrMessageEvent):
         use_fallback: bool = False,
     ) -> None:
         if not use_fallback:
-            # Non-fallback mode: merge all chunks into a single message and send
-            # directly. The generator is already exhausted here;
-            # super().send_streaming() is called to maintain the framework's
-            # lifecycle hooks, but will be a no-op on the empty generator.
             merged = None
             async for chain in generator:
                 if merged is None:
@@ -58,16 +63,16 @@ class SynologyChatMessageEvent(AstrMessageEvent):
             for comp in chain.chain:
                 if isinstance(comp, Plain):
                     buffer += comp.text
-                    if any(p in buffer for p in "。？！!?.;；\n"):
+                    if any(ch in buffer for ch in _STREAMING_FLUSH_CHARS):
                         await self.send(MessageChain([Plain(buffer)]))
                         buffer = ""
-                        await asyncio.sleep(0.3)
+                        await asyncio.sleep(_STREAMING_FLUSH_DELAY)
                 elif isinstance(comp, Image):
                     if buffer.strip():
                         await self.send(MessageChain([Plain(buffer)]))
                         buffer = ""
                     await self.send(MessageChain([comp]))
-                    await asyncio.sleep(0.3)
+                    await asyncio.sleep(_STREAMING_FLUSH_DELAY)
 
         if buffer.strip():
             await self.send(MessageChain([Plain(buffer)]))

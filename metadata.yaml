@@ -1,7 +1,7 @@
 name: astrbot_plugin_synochat_adapter
 author: Unsuited_
 desc: 为 AstrBot 提供 Synology Chat 平台适配能力，通过统一 Webhook 接收消息并使用 SYNO.Chat.External 回发消息。
-version: 0.1.1
+version: 0.2.0
 display_name: Synology Chat Adapter
 astrbot_version: ">=4.17.0,<5"
 repo: "https://github.com/SteveBaka/Synology-chat-adapter"
