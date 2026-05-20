@@ -4,7 +4,7 @@ import asyncio
 import urllib.parse
 from typing import Any, Optional
 
-from astrbot.api.logger import logger
+from astrbot.api import logger
 
 SYNOLOGY_IMAGE_PLACEHOLDER_TEXT = "[图片]"
 
@@ -109,7 +109,7 @@ async def extract_image_url(component: Any) -> str:
 
 
 def build_image_link_text(text: str, image_urls: list[str]) -> str:
-    normalized_text = safe_str(text).strip()
+    normalized_text = text.strip()
     if not image_urls:
         return normalized_text
 

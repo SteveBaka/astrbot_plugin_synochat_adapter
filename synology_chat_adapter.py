@@ -305,9 +305,10 @@ class SynologyChatAdapter(Platform):
                 }
             return await self.webhook_callback(quart.request)
 
-        app.add_url_rule("/", view_func=_handle_request, methods=["GET", "POST"])
+        app.add_url_rule("/", endpoint="root", view_func=_handle_request, methods=["GET", "POST"])
         app.add_url_rule(
             "/webhook/synology-chat",
+            endpoint="webhook",
             view_func=_handle_request,
             methods=["GET", "POST"],
         )
