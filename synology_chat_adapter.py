@@ -41,6 +41,8 @@ from .synology_chat_helpers import (
     "synochat_adapter",
     "Synology Chat 平台适配器",
     default_config_tmpl={
+        "id": "synology_chat",
+        "enable": True,
         "base_url": "https://chat.example.com",
         "incoming_webhook_url": "",
         "bot_token": "",
@@ -115,6 +117,11 @@ from .synology_chat_helpers import (
             "description": "Webhook UUID",
             "type": "string",
             "hint": "统一 Webhook 模式下的平台 webhook 标识。",
+        },
+        "logo_token": {
+            "description": "Logo Token",
+            "type": "string",
+            "invisible": True,
         },
     },
 )
